@@ -7,10 +7,11 @@
     <link rel="stylesheet" type="text/css" href="stylesheets/stylesheet.css" media="screen" />
     <link rel="stylesheet" type="text/css" href="stylesheets/pygment_trac.css" media="screen" />
     <link rel="stylesheet" type="text/css" href="stylesheets/print.css" media="print" />
+    <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
     <!--[if lt IE 9]>
     <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
     <![endif]-->
-    <title>Happier-mosaic by phblj</title>
+    <title>Happier-mosaic</title>
   </head>
 
   <body>
@@ -46,9 +47,13 @@ $ git checkout gh-pages
 
 <p>We've crafted some handsome templates for you to use. Go ahead and continue to layouts to browse through them. You can easily go back to edit your page before publishing. After publishing your page, you can revisit the page generator and switch to another theme. Your Page content will be preserved if it remained markdown format.</p>
 
-<h3>Rather Drive Stick?</h3>
+<h3>Sample animation</h3>
 
-<p>If you prefer to not use the automatic generator, push a branch named <code>gh-pages</code> to your repository to create a page manually. In addition to supporting regular HTML content, GitHub Pages support Jekyll, a simple, blog aware static site generator written by our own Tom Preston-Werner. Jekyll makes it easy to create site-wide headers and footers without having to copy them across every page. It also offers intelligent blog support and other advanced templating features.</p>
+<canvas id="myCanvas" height=260 width=260 style="border: solid 1px black;"></canvas>
+<div id="loadingBar" style="background-color: red;"></div>
+
+<canvas id="c2" style="border: solid lightcoral 1px;"></canvas>
+<canvas id="c3" style="border: solid green 1px;"></canvas>
 
 <h3>Authors and Contributors</h3>
 
@@ -67,5 +72,200 @@ $ git checkout gh-pages
         
       </div>
     </div>
+
+  <script src="data.js"></script>
+  <script>
+      //file://localhost/Users/parker/Dropbox/Projects/happier-mosaic-pages/index.html
+
+    var Ring = function (bandMin, bandMax, imgRes, fullRowsCols) {
+        var myRowsCols = bandMax * 2 + 1;
+        var scale = bandMin == 0 ? 1.0 : 1.0 / bandMin;
+        var canvas = document.createElement('canvas'); // document.getElementById('c2'); //
+        var tileHeightWidth = imgRes * scale;
+        canvas.width = canvas.height = myRowsCols * tileHeightWidth;
+        var context = canvas.getContext('2d');
+        context.scale(scale, scale);
+        this.id = "Ring " + bandMin + "-" + bandMax;
+        this.drawTime = 0;
+        this.renderTime = 0;
+
+        this.render = function (imageGetter, nextImageX, nextImageY) {
+            this.renderTime -= Date.now();
+            this.nextImageX = nextImageX;
+            this.nextImageY = nextImageY;
+            for (var i = Math.max(nextImageX-bandMax, 0); i < Math.min(nextImageX+bandMax+1, fullRowsCols); i++) {
+                var x = i - nextImageX + bandMax;
+                for (var j = Math.max(nextImageY-bandMax, 0); j < Math.min(nextImageY+bandMax+1, fullRowsCols); j++) {
+                    var y = j - nextImageY + bandMax;
+                    if (x <= bandMax - bandMin ||
+                        x >= myRowsCols - bandMax + bandMin - 1 ||
+                        y <= bandMax - bandMin ||
+                        y >= myRowsCols - bandMax + bandMin - 1) {
+                            context.drawImage(imageGetter(i + j * fullRowsCols), x*imgRes, y*imgRes, imgRes, imgRes);
+                    }
+                }
+            }
+            this.renderTime += Date.now();
+        }
+
+        this.draw = function (context) {
+            this.drawTime -= Date.now();
+            context.save();
+            context.scale(1/(fullRowsCols*scale), 1/(fullRowsCols*scale));
+            context.drawImage(canvas, scale*imgRes*(this.nextImageX-bandMax), scale*imgRes*(this.nextImageY-bandMax));
+            context.restore();
+            this.drawTime += Date.now();
+        }
+    }
+
+    var Frame = function (ringCount, imgRes, fullRowsCols) {
+        if (ringCount > fullRowsCols) {
+            ringCount = fullRowsCols;
+        }
+        var rings = [];
+        for (i = 0; i < ringCount - 1; i++) {
+            rings.push(new Ring(i, i, imgRes, fullRowsCols));
+        }
+        rings.push(new Ring(ringCount-1, fullRowsCols-1, imgRes, fullRowsCols));
+
+        this.render = function (imageGetter, nextImagePosition) {
+            var nextImageX = nextImagePosition % fullRowsCols;
+            var nextImageY = Math.floor(nextImagePosition / fullRowsCols);
+
+            rings.forEach(function (ring) {
+                ring.render(imageGetter, nextImageX, nextImageY);
+//                if (ring.renderTime > 0 || ring.drawTime > 0) {
+//                    console.log(ring.id + ":  render=" + ring.renderTime + "  draw=" + ring.drawTime);
+//                }
+            });
+        }
+
+        this.draw = function (context) {
+            rings.forEach(function (ring) {
+                ring.draw(context);
+            });
+        }
+    }
+
+      var images = []
+      var mapping = []
+
+      data.forEach(function (d) {
+          images.push(d['u']);
+          mapping.push(d['m']);
+      });
+
+      imageObjs = [];
+
+      var imageLoadCallback = (function () {
+          var loadedImages = 0;
+          return function () {
+              loadedImages += 1;
+
+              document.getElementById('loadingBar').innerHTML = 'Loaded ' + loadedImages + '/' + images.length;
+
+              if (loadedImages == images.length) {
+                  var time = Date.now();
+                  frame = makeFrame(Math.floor(Math.random() * images.length), Math.floor(Math.random() * rowscols * rowscols));
+                  return tick([frame, makeFrame(frame.nextImageNumber, Math.floor(Math.random() * rowscols * rowscols))], time, time);
+              }
+          };
+      })();
+
+      images.forEach(function (image) {
+          imageObj = new Image();
+          var loadedImages = 0;
+          imageObj.onload = imageLoadCallback;
+          imageObj.src = image;
+          imageObjs.push(imageObj);
+      })
+
+      var rowscols = Math.sqrt(mapping[0].length);  // number of sub-images that makes up an image
+      var heightwidth = 260;  // width of a single image in px
+      var zoomInterval = 3000;
+      var pauseInterval = 0;
+      var minFrameDelay = 1000/120;
+
+        var tick = function (frames, startTime, lastTickTime) {
+            var now = Date.now();
+            var stepTime = now - startTime;
+
+            if (stepTime >= zoomInterval) {
+                var newFrame = function () {
+                    var newFrameNow = Date.now();
+
+                    console.log("Load delay: " + (newFrameNow - lastTickTime));
+
+                    return tick(frames, newFrameNow, newFrameNow);
+                }
+
+                frames = [frames[1], makeFrame(frames[1].nextImageNumber, Math.floor(Math.random() * rowscols * rowscols))];
+                var doneFrameElapsed = Date.now() - startTime;
+                setTimeout(newFrame, Math.max(0, zoomInterval + pauseInterval - doneFrameElapsed));
+            } else {
+                var nextStep = function () {
+                    var nextStepNow = Date.now();
+
+                    var frameRate = Math.round(1000/(nextStepNow - lastTickTime));
+                    document.getElementById('loadingBar').style.width = frameRate + 'px';
+                    document.getElementById('loadingBar').innerHTML = frameRate + '&nbsp;fps';
+
+                    show(frames, stepTime/zoomInterval);
+                    tick(frames, startTime, nextStepNow);
+                };
+
+                var elapsed = Date.now() - lastTickTime;
+                setTimeout(nextStep, Math.max(0, minFrameDelay-elapsed));
+            }
+        }
+
+        var frames = [new Frame(10, heightwidth, rowscols), new Frame(10, heightwidth, rowscols)];
+        var nextFrame = 0;
+
+        var makeFrame = function(imageNumber, nextImagePosition) {
+            var frame = frames[nextFrame];
+            nextFrame = (nextFrame + 1) % frames.length;
+            var imageGetter = function(imageIdx) {
+                return imageObjs[mapping[imageNumber][imageIdx]];
+            }
+            frame.render(imageGetter, nextImagePosition);
+            frame.nextImagePosition = nextImagePosition;
+            frame.nextImageNumber = mapping[imageNumber][nextImagePosition];
+            return frame;
+        }
+
+        var show = function (frames, step) {
+            var canvas = document.getElementById('myCanvas');
+            var context = canvas.getContext('2d');
+
+            context.save();
+
+            step = step * step * step;
+
+            var nextImagePosition = frames[0].nextImagePosition;
+            var scale = step * (rowscols-1) + 1;
+            var translateFactor = (rowscols - (rowscols / scale))/(1-rowscols);
+            var nextImageLocX = nextImagePosition % rowscols;
+            var nextImageLocY = Math.floor(nextImagePosition / rowscols);
+
+            context.translate(-heightwidth*nextImageLocX*step, -heightwidth*nextImageLocY*step);
+            context.scale(scale, scale);
+
+            frames[0].draw(context);
+
+            context.restore();
+        }
+
+        var mouseX = heightwidth/2;
+        var mouseY = heightwidth/2;
+
+        window.onload = function(){
+            document.getElementById("myCanvas").addEventListener("mousemove", function(evt) {
+                mouseX = evt.clientX;
+                mouseY = evt.clientY;
+            });
+        };
+
+    </script>
   </body>
 </html>
